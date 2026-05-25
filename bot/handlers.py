@@ -21,7 +21,7 @@ REQUIRED_WEEKLY_HOURS = 40
 
 # Preset shift modes the user picks per day before any hour selection.
 TEN_HOUR_LENGTH = 10
-TEN_HOUR_MAX_ARRIVAL = HOUR_MAX - TEN_HOUR_LENGTH  # latest arrival that still fits 10h within HOUR_MAX
+TEN_HOUR_TOKEN = "10h"  # stored time_range value for a 10-hour shift with no specific arrival
 
 ID_PATTERN = re.compile(r"^\d{5,10}$")
 
@@ -29,6 +29,8 @@ ID_PATTERN = re.compile(r"^\d{5,10}$")
 def _slot_hours(time_range: str | None) -> int:
     if not time_range:
         return 0
+    if time_range == TEN_HOUR_TOKEN:
+        return TEN_HOUR_LENGTH
     try:
         a, b = time_range.split("-")
         return max(0, int(b) - int(a))
@@ -40,9 +42,17 @@ def _hours_total(chosen: dict[str, str | None]) -> int:
     return sum(_slot_hours(v) for v in chosen.values())
 
 
+def _format_time_range(value: str | None) -> str:
+    if not value:
+        return ""
+    if value == TEN_HOUR_TOKEN:
+        return f"{TEN_HOUR_LENGTH} שעות"
+    return value
+
+
 def _format_chosen(chosen: dict[str, str | None]) -> str:
     return ", ".join(
-        f"{DAY_LABEL_HE[d]} {chosen[d]}" if chosen[d] else DAY_LABEL_HE[d]
+        f"{DAY_LABEL_HE[d]} {_format_time_range(chosen[d])}".rstrip()
         for d in chosen
     )
 
@@ -149,11 +159,16 @@ async def on_picker_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if data.startswith("mode:"):
         choice = data.split(":", 1)[1]
-        if not context.user_data.get("time_remaining"):
+        remaining = list(context.user_data.get("time_remaining") or [])
+        chosen = dict(context.user_data.get("time_chosen") or {})
+        if not remaining:
             return
+        current_day = remaining[0]
         if choice == "10h":
-            context.user_data["shift_mode"] = "10h"
-            await _prompt_arrival(query, context)
+            chosen[current_day] = TEN_HOUR_TOKEN
+            context.user_data["time_remaining"] = remaining[1:]
+            context.user_data["time_chosen"] = chosen
+            await _advance_or_finalize(query, context, user, chat, week)
             return
         if choice == "specific":
             context.user_data["shift_mode"] = "specific"
@@ -163,27 +178,12 @@ async def on_picker_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if data.startswith("arr:"):
         remaining = list(context.user_data.get("time_remaining") or [])
-        chosen = dict(context.user_data.get("time_chosen") or {})
-        mode = context.user_data.get("shift_mode")
-        if not remaining or mode not in ("10h", "specific"):
+        if not remaining:
             return
         try:
             hour = int(data.split(":", 1)[1])
         except ValueError:
             return
-        current_day = remaining[0]
-
-        if mode == "10h":
-            if not HOUR_MIN <= hour <= TEN_HOUR_MAX_ARRIVAL:
-                return
-            chosen[current_day] = f"{hour:02d}-{hour + TEN_HOUR_LENGTH:02d}"
-            context.user_data["time_remaining"] = remaining[1:]
-            context.user_data["time_chosen"] = chosen
-            context.user_data["shift_mode"] = None
-            await _advance_or_finalize(query, context, user, chat, week)
-            return
-
-        # specific: store arrival, ask for departure
         if not HOUR_MIN <= hour < HOUR_MAX:
             return
         context.user_data["arrival_pending"] = hour
@@ -233,7 +233,7 @@ async def _advance_or_finalize(query, context: ContextTypes.DEFAULT_TYPE, user, 
 
     ordered = [d for d in DAY_KEYS if d in chosen]
     parsed = [{"day": d, "time_range": chosen[d]} for d in ordered]
-    raw = "\n".join(f"{DAY_LABEL_HE[d]} {chosen[d]}" for d in ordered)
+    raw = "\n".join(f"{DAY_LABEL_HE[d]} {_format_time_range(chosen[d])}".rstrip() for d in ordered)
 
     db.upsert_user(user.id, user.username, user.first_name, chat.id)
     db.ensure_week(week)
@@ -281,19 +281,12 @@ async def _prompt_mode(query, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def _prompt_arrival(query, context: ContextTypes.DEFAULT_TYPE) -> None:
     remaining: list[str] = context.user_data.get("time_remaining") or []
     chosen: dict[str, str | None] = context.user_data.get("time_chosen") or {}
-    mode = context.user_data.get("shift_mode")
     if not remaining:
         return
     current_day = remaining[0]
-    if mode == "10h":
-        subtitle = f"משמרת של {TEN_HOUR_LENGTH} שעות.\nשעת הגעה:"
-        hi = TEN_HOUR_MAX_ARRIVAL
-    else:
-        subtitle = "שעה ספציפית.\nשעת הגעה:"
-        hi = HOUR_MAX - 1
     await query.edit_message_text(
-        f"{_progress_header(chosen)}{DAY_LABEL_HE[current_day]} — {subtitle}",
-        reply_markup=_hour_keyboard("arr", HOUR_MIN, hi),
+        f"{_progress_header(chosen)}{DAY_LABEL_HE[current_day]} — שעת הגעה:",
+        reply_markup=_hour_keyboard("arr", HOUR_MIN, HOUR_MAX - 1),
     )
 
 
