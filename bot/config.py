@@ -13,6 +13,7 @@ TELEGRAM_CHAT_ID = int(_required("TELEGRAM_CHAT_ID"))
 ADMIN_IDS = {
     int(x) for x in os.environ.get("ADMIN_IDS", "").split(",") if x.strip()
 }
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip() or None
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip() or None
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
 DB_PATH = os.environ.get("DB_PATH", "/data/shifts.db")
 TIMEZONE = os.environ.get("TZ", "Asia/Jerusalem")

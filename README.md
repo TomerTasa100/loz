@@ -21,7 +21,7 @@ Submissions are free-text Hebrew, e.g. `ראשון 14:00-19:00, שלישי 18-22
    cp .env.example .env
    # edit .env
    ```
-5. Optional: set `ANTHROPIC_API_KEY` to enable Claude Haiku as a fallback parser for messy messages.
+5. Optional: set `OPENAI_API_KEY` (and optionally `OPENAI_MODEL`, default `gpt-4o-mini`) to enable an LLM fallback parser for messy messages.
 
 ## Run
 

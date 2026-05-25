@@ -5,7 +5,7 @@ import logging
 import re
 from dataclasses import dataclass
 
-from .config import ANTHROPIC_API_KEY
+from .config import OPENAI_API_KEY, OPENAI_MODEL
 from .week import DAY_KEYS
 
 logger = logging.getLogger(__name__)
@@ -138,22 +138,25 @@ def _looks_shift_related(text: str) -> bool:
 
 
 def parse_with_llm(text: str) -> list[dict] | None:
-    if not ANTHROPIC_API_KEY:
+    if not OPENAI_API_KEY:
         return None
     try:
-        from anthropic import Anthropic  # imported lazily so the bot runs without the SDK installed
+        from openai import OpenAI  # imported lazily so the bot runs without the SDK installed
     except ImportError:
-        logger.warning("anthropic SDK not installed; skipping LLM fallback")
+        logger.warning("openai SDK not installed; skipping LLM fallback")
         return None
     try:
-        client = Anthropic(api_key=ANTHROPIC_API_KEY)
-        resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        resp = client.chat.completions.create(
+            model=OPENAI_MODEL,
             max_tokens=300,
-            system=_LLM_SYSTEM,
-            messages=[{"role": "user", "content": text}],
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": _LLM_SYSTEM},
+                {"role": "user", "content": text},
+            ],
         )
-        raw = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
+        raw = (resp.choices[0].message.content or "").strip()
         # Strip code fences if the model wrapped it anyway.
         if raw.startswith("```"):
             raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.S)

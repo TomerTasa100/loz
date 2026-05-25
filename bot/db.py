@@ -22,7 +22,9 @@ CREATE TABLE IF NOT EXISTS users (
   username         TEXT,
   first_name       TEXT,
   dm_chat_id       INTEGER,
-  last_seen_at     TEXT NOT NULL
+  last_seen_at     TEXT NOT NULL,
+  display_name     TEXT,
+  employee_id      TEXT
 );
 
 CREATE TABLE IF NOT EXISTS submissions (
@@ -44,6 +46,29 @@ def init() -> None:
     os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
     with _conn() as c:
         c.executescript(SCHEMA)
+        # Idempotent column adds for existing databases created before these fields.
+        existing = {row["name"] for row in c.execute("PRAGMA table_info(users)")}
+        for col in ("display_name", "employee_id"):
+            if col not in existing:
+                c.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
+
+
+def get_user(user_id: int) -> dict | None:
+    with _conn() as c:
+        row = c.execute(
+            "SELECT telegram_user_id, username, first_name, dm_chat_id, display_name, employee_id "
+            "FROM users WHERE telegram_user_id = ?",
+            (user_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def set_user_details(user_id: int, display_name: str, employee_id: str) -> None:
+    with _conn() as c:
+        c.execute(
+            "UPDATE users SET display_name = ?, employee_id = ? WHERE telegram_user_id = ?",
+            (display_name, employee_id, user_id),
+        )
 
 
 @contextmanager
