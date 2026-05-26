@@ -34,7 +34,7 @@ def main() -> None:
     scheduler.register_jobs(application)
 
     logger.info("Application started; entering long-polling loop")
-    application.run_polling(allowed_updates=["message", "callback_query"])
+    application.run_polling(allowed_updates=["message", "callback_query"], drop_pending_updates=True)
 
 
 if __name__ == "__main__":
