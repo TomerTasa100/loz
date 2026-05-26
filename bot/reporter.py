@@ -5,7 +5,7 @@ from .week import DAY_KEYS, DAY_LABEL_HE, Week
 
 
 def _display_name(row: dict) -> str:
-    return row["first_name"] or (f"@{row['username']}" if row["username"] else f"id:{row['user_id']}")
+    return row.get("display_name") or row.get("first_name") or (f"@{row['username']}" if row.get("username") else f"id:{row['user_id']}")
 
 
 def build_report(week: Week) -> str:
@@ -28,11 +28,8 @@ def build_report(week: Week) -> str:
         entries = by_day[day_key]
         if entries:
             lines.append(f"🟢 {DAY_LABEL_HE[day_key]} {date_label}")
-            for name, tr in entries:
-                if tr:
-                    lines.append(f"  • {name} {tr}")
-                else:
-                    lines.append(f"  • {name}")
+            for name, _tr in entries:
+                lines.append(f"  • {name}")
         else:
             lines.append(f"⚪ {DAY_LABEL_HE[day_key]} {date_label} — אין משמרות")
         lines.append("")

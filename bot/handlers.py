@@ -21,8 +21,6 @@ HALF_DAY_TOKEN = "half"
 DAY_VALUE = {FULL_DAY_TOKEN: 1.0, HALF_DAY_TOKEN: 0.5}
 DAY_LABEL = {FULL_DAY_TOKEN: "יום מלא", HALF_DAY_TOKEN: "חצי יום"}
 
-ID_PATTERN = re.compile(r"^\d{5,10}$")
-
 _MEMBER_STATUSES = {ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER, ChatMemberStatus.RESTRICTED}
 
 
@@ -77,7 +75,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     record = db.get_user(user.id)
-    if not record or not record.get("display_name") or not record.get("employee_id"):
+    if not record or not record.get("display_name"):
         context.user_data["onboarding_step"] = "awaiting_name"
         await update.effective_message.reply_text(
             "שלום 👋\nכדי להירשם, מה השם המלא שלך?"
@@ -277,19 +275,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             if len(name) < 2:
                 await msg.reply_text("שם קצר מדי. נסה/י שוב.")
                 return
-            context.user_data["onboarding_name"] = name
-            context.user_data["onboarding_step"] = "awaiting_id"
-            await msg.reply_text(f"נעים מאוד {name}!\nמה מספר הזהות / מספר עובד שלך? (ספרות בלבד)")
-            return
-        if step == "awaiting_id":
-            emp_id = msg.text.strip()
-            if not ID_PATTERN.match(emp_id):
-                await msg.reply_text("המספר חייב להיות בין 5 ל-10 ספרות. נסה/י שוב.")
-                return
-            name = context.user_data.get("onboarding_name") or user.first_name or "משתמש"
-            db.set_user_details(user.id, name, emp_id)
+            db.set_user_details(user.id, name, "")
             context.user_data["onboarding_step"] = None
-            context.user_data["onboarding_name"] = None
             await _send_day_picker(msg.reply_text, context, greet_name=name)
             return
 

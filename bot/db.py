@@ -146,7 +146,7 @@ def latest_submissions_for_week(week_id: int) -> list[dict]:
         rows = c.execute(
             """
             SELECT s.user_id, s.raw_text, s.parsed_json, s.created_at,
-                   u.username, u.first_name
+                   u.username, u.first_name, u.display_name
             FROM submissions s
             JOIN users u ON u.telegram_user_id = s.user_id
             WHERE s.week_id = ?
@@ -165,6 +165,7 @@ def latest_submissions_for_week(week_id: int) -> list[dict]:
             "shifts": json.loads(r["parsed_json"]),
             "username": r["username"],
             "first_name": r["first_name"],
+            "display_name": r["display_name"],
         }
         for r in rows
     ]
