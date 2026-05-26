@@ -29,7 +29,7 @@ def main() -> None:
     application.add_handler(CommandHandler("help", handlers.help_cmd))
     application.add_handler(CommandHandler("remind", handlers.remind_cmd))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.on_text))
-    application.add_handler(CallbackQueryHandler(handlers.on_picker_callback, pattern=r"^(day:|picker:|mode:|arr:|dep:)"))
+    application.add_handler(CallbackQueryHandler(handlers.on_picker_callback, pattern=r"^(day:|picker:|mode:)"))
 
     scheduler.register_jobs(application)
 

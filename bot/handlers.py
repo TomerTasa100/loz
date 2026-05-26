@@ -4,7 +4,7 @@ import logging
 import re
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.constants import ChatType, ReactionEmoji
+from telegram.constants import ChatMemberStatus, ChatType, ReactionEmoji
 from telegram.ext import ContextTypes
 
 from . import db, scheduler
@@ -14,40 +14,40 @@ from .week import DAY_KEYS, DAY_LABEL_HE, Week, upcoming_week
 
 logger = logging.getLogger(__name__)
 
-# Selectable hours (24-hour clock). Arrival can be 06..23, departure can be arrival+1..24.
-HOUR_MIN = 6
-HOUR_MAX = 24
-REQUIRED_WEEKLY_HOURS = 40
+# Preset shift modes the user picks per day. Stored as the submission's time_range token.
+FULL_DAY_TOKEN = "full"
+HALF_DAY_TOKEN = "half"
 
-# Preset shift modes the user picks per day before any hour selection.
-TEN_HOUR_LENGTH = 10
-TEN_HOUR_TOKEN = "10h"  # stored time_range value for a 10-hour shift with no specific arrival
+DAY_VALUE = {FULL_DAY_TOKEN: 1.0, HALF_DAY_TOKEN: 0.5}
+DAY_LABEL = {FULL_DAY_TOKEN: "יום מלא", HALF_DAY_TOKEN: "חצי יום"}
 
 ID_PATTERN = re.compile(r"^\d{5,10}$")
 
+_MEMBER_STATUSES = {ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER, ChatMemberStatus.RESTRICTED}
 
-def _slot_hours(time_range: str | None) -> int:
-    if not time_range:
-        return 0
-    if time_range == TEN_HOUR_TOKEN:
-        return TEN_HOUR_LENGTH
+
+async def _is_group_member(bot, user_id: int) -> bool:
     try:
-        a, b = time_range.split("-")
-        return max(0, int(b) - int(a))
-    except ValueError:
-        return 0
+        member = await bot.get_chat_member(chat_id=TELEGRAM_CHAT_ID, user_id=user_id)
+        return member.status in _MEMBER_STATUSES
+    except Exception:
+        return False
 
 
-def _hours_total(chosen: dict[str, str | None]) -> int:
-    return sum(_slot_hours(v) for v in chosen.values())
+def _day_value(token: str | None) -> float:
+    return DAY_VALUE.get(token or "", 0.0)
+
+
+def _days_total(chosen: dict[str, str | None]) -> float:
+    return sum(_day_value(v) for v in chosen.values())
 
 
 def _format_time_range(value: str | None) -> str:
-    if not value:
-        return ""
-    if value == TEN_HOUR_TOKEN:
-        return f"{TEN_HOUR_LENGTH} שעות"
-    return value
+    return DAY_LABEL.get(value or "", "")
+
+
+def _format_total(total: float) -> str:
+    return f"{total:g}"
 
 
 def _format_chosen(chosen: dict[str, str | None]) -> str:
@@ -72,6 +72,10 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
+    if not await _is_group_member(context.bot, user.id):
+        await update.effective_message.reply_text("מצטער, הבוט זמין רק לחברי הקבוצה.")
+        return
+
     record = db.get_user(user.id)
     if not record or not record.get("display_name") or not record.get("employee_id"):
         context.user_data["onboarding_step"] = "awaiting_name"
@@ -89,7 +93,6 @@ async def _send_day_picker(send, context: ContextTypes.DEFAULT_TYPE, *, greet_na
     context.user_data["picker_week_id"] = week.id
     context.user_data["time_remaining"] = []
     context.user_data["time_chosen"] = {}
-    context.user_data["arrival_pending"] = None
     await send(
         f"היי {greet_name} 👋\n"
         f"בחר/י את הימים שבהם תרצה/י לעבוד בשבוע {week.label()}:\n"
@@ -159,55 +162,16 @@ async def on_picker_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if data.startswith("mode:"):
         choice = data.split(":", 1)[1]
+        if choice not in DAY_VALUE:
+            return
         remaining = list(context.user_data.get("time_remaining") or [])
         chosen = dict(context.user_data.get("time_chosen") or {})
         if not remaining:
             return
         current_day = remaining[0]
-        if choice == "10h":
-            chosen[current_day] = TEN_HOUR_TOKEN
-            context.user_data["time_remaining"] = remaining[1:]
-            context.user_data["time_chosen"] = chosen
-            await _advance_or_finalize(query, context, user, chat, week)
-            return
-        if choice == "specific":
-            context.user_data["shift_mode"] = "specific"
-            await _prompt_arrival(query, context)
-            return
-        return
-
-    if data.startswith("arr:"):
-        remaining = list(context.user_data.get("time_remaining") or [])
-        if not remaining:
-            return
-        try:
-            hour = int(data.split(":", 1)[1])
-        except ValueError:
-            return
-        if not HOUR_MIN <= hour < HOUR_MAX:
-            return
-        context.user_data["arrival_pending"] = hour
-        await _prompt_departure(query, context, hour)
-        return
-
-    if data.startswith("dep:"):
-        remaining = list(context.user_data.get("time_remaining") or [])
-        chosen = dict(context.user_data.get("time_chosen") or {})
-        arrival = context.user_data.get("arrival_pending")
-        if not remaining or arrival is None:
-            return
-        try:
-            hour = int(data.split(":", 1)[1])
-        except ValueError:
-            return
-        if not arrival < hour <= HOUR_MAX:
-            return
-        current_day = remaining[0]
-        chosen[current_day] = f"{arrival:02d}-{hour:02d}"
+        chosen[current_day] = choice
         context.user_data["time_remaining"] = remaining[1:]
         context.user_data["time_chosen"] = chosen
-        context.user_data["arrival_pending"] = None
-        context.user_data["shift_mode"] = None
         await _advance_or_finalize(query, context, user, chat, week)
         return
 
@@ -218,22 +182,10 @@ async def _advance_or_finalize(query, context: ContextTypes.DEFAULT_TYPE, user, 
         return
 
     chosen: dict[str, str | None] = context.user_data.get("time_chosen") or {}
-    total = _hours_total(chosen)
-    if total != REQUIRED_WEEKLY_HOURS:
-        diff = total - REQUIRED_WEEKLY_HOURS
-        sign = "יותר מדי" if diff > 0 else "פחות מדי"
-        context.user_data["time_chosen"] = {}
-        await query.edit_message_text(
-            f"❌ סה\"כ {total} שעות — {sign} ב-{abs(diff)} שעות.\n"
-            f"נדרשות בדיוק {REQUIRED_WEEKLY_HOURS} שעות בשבוע.\n"
-            f"מה שבחרת: {_format_chosen(chosen)}\n\n"
-            "שלח/י /start כדי להתחיל מחדש."
-        )
-        return
-
     ordered = [d for d in DAY_KEYS if d in chosen]
     parsed = [{"day": d, "time_range": chosen[d]} for d in ordered]
-    raw = "\n".join(f"{DAY_LABEL_HE[d]} {_format_time_range(chosen[d])}".rstrip() for d in ordered)
+    raw = "\n".join(f"{DAY_LABEL_HE[d]} {_format_time_range(chosen[d])}" for d in ordered)
+    total = _days_total(chosen)
 
     db.upsert_user(user.id, user.username, user.first_name, chat.id)
     db.ensure_week(week)
@@ -244,22 +196,16 @@ async def _advance_or_finalize(query, context: ContextTypes.DEFAULT_TYPE, user, 
     context.user_data["time_chosen"] = {}
 
     await query.edit_message_text(
-        f"✅ נרשמת ל-{REQUIRED_WEEKLY_HOURS} שעות:\n{raw}\n\n"
+        f"✅ נרשמת ל-{_format_total(total)} ימים:\n{raw}\n\n"
         "אפשר לשלוח /start בכל רגע כדי לעדכן."
     )
-
-
-def _hour_keyboard(prefix: str, lo: int, hi: int) -> InlineKeyboardMarkup:
-    buttons = [InlineKeyboardButton(f"{h:02d}:00", callback_data=f"{prefix}:{h}") for h in range(lo, hi + 1)]
-    rows = [buttons[i:i + 4] for i in range(0, len(buttons), 4)]
-    return InlineKeyboardMarkup(rows)
 
 
 def _progress_header(chosen: dict[str, str | None]) -> str:
     if not chosen:
         return ""
-    total = _hours_total(chosen)
-    return f"עד כה: {_format_chosen(chosen)}\nסך שעות: {total}/{REQUIRED_WEEKLY_HOURS}\n\n"
+    total = _days_total(chosen)
+    return f"עד כה: {_format_chosen(chosen)}\nסך ימים: {_format_total(total)}\n\n"
 
 
 async def _prompt_mode(query, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -269,36 +215,12 @@ async def _prompt_mode(query, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     current_day = remaining[0]
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"{TEN_HOUR_LENGTH} שעות", callback_data="mode:10h")],
-        [InlineKeyboardButton("שעה ספציפית", callback_data="mode:specific")],
+        [InlineKeyboardButton(DAY_LABEL[FULL_DAY_TOKEN], callback_data=f"mode:{FULL_DAY_TOKEN}")],
+        [InlineKeyboardButton(DAY_LABEL[HALF_DAY_TOKEN], callback_data=f"mode:{HALF_DAY_TOKEN}")],
     ])
     await query.edit_message_text(
         f"{_progress_header(chosen)}איזה סוג משמרת ליום {DAY_LABEL_HE[current_day]}?",
         reply_markup=keyboard,
-    )
-
-
-async def _prompt_arrival(query, context: ContextTypes.DEFAULT_TYPE) -> None:
-    remaining: list[str] = context.user_data.get("time_remaining") or []
-    chosen: dict[str, str | None] = context.user_data.get("time_chosen") or {}
-    if not remaining:
-        return
-    current_day = remaining[0]
-    await query.edit_message_text(
-        f"{_progress_header(chosen)}{DAY_LABEL_HE[current_day]} — שעת הגעה:",
-        reply_markup=_hour_keyboard("arr", HOUR_MIN, HOUR_MAX - 1),
-    )
-
-
-async def _prompt_departure(query, context: ContextTypes.DEFAULT_TYPE, arrival: int) -> None:
-    remaining: list[str] = context.user_data.get("time_remaining") or []
-    chosen: dict[str, str | None] = context.user_data.get("time_chosen") or {}
-    if not remaining:
-        return
-    current_day = remaining[0]
-    await query.edit_message_text(
-        f"{_progress_header(chosen)}{DAY_LABEL_HE[current_day]} — הגעה ב-{arrival:02d}:00\nשעת יציאה:",
-        reply_markup=_hour_keyboard("dep", arrival + 1, HOUR_MAX),
     )
 
 
@@ -347,6 +269,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     db.upsert_user(user.id, user.username, user.first_name, dm_chat_id)
 
     if source == "dm":
+        if not await _is_group_member(context.bot, user.id):
+            return
         step = context.user_data.get("onboarding_step")
         if step == "awaiting_name":
             name = msg.text.strip()
