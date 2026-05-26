@@ -7,7 +7,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatMemberStatus, ChatType, ReactionEmoji
 from telegram.ext import ContextTypes
 
-from . import db, scheduler
+from . import db, reporter, scheduler
 from .config import ADMIN_IDS, TELEGRAM_CHAT_ID
 from .parser import parse_shift
 from .week import DAY_KEYS, DAY_LABEL_HE, Week, upcoming_week
@@ -230,6 +230,15 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "פשוט כתוב/י הודעה רגילה עם ימים ושעות ואני אזהה אותה אוטומטית.\n"
         "ההודעה האחרונה שלך לכל שבוע היא הקובעת."
     )
+
+
+async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat = update.effective_chat
+    if chat is None or chat.id != TELEGRAM_CHAT_ID:
+        return
+    week = upcoming_week()
+    text = reporter.build_report(week)
+    await update.effective_message.reply_text(text)
 
 
 async def remind_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
