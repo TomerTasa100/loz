@@ -237,8 +237,10 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if chat is None or chat.id != TELEGRAM_CHAT_ID:
         return
     week = upcoming_week()
-    text = reporter.build_report(week)
-    await update.effective_message.reply_text(text)
+    await update.effective_message.reply_text(reporter.build_report(week))
+    missing = reporter.build_missing(week)
+    if missing:
+        await update.effective_message.reply_text(missing)
 
 
 async def remind_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -15,40 +15,46 @@ def _display_name(row: dict) -> str:
 def build_report(week: Week) -> str:
     subs = db.latest_submissions_for_week(week.id)
 
-    # Build per-day buckets: present (full) and remote (half)
-    present: dict[str, list[str]] = {k: [] for k in REPORT_DAYS}
-    remote:  dict[str, list[str]] = {k: [] for k in REPORT_DAYS}
-
-    dates = dict(week.dates())
+    # Per submitter: set of days they selected and their shift type per day.
+    all_names: list[str] = []
+    day_choice: dict[str, dict[str, str]] = {}  # name -> {day -> token}
 
     for row in subs:
         name = _display_name(row)
-        for shift in row["shifts"]:
-            day = shift.get("day")
-            if day not in present:
-                continue
-            if shift.get("time_range") == "half":
-                remote[day].append(name)
-            else:
-                present[day].append(name)
+        all_names.append(name)
+        day_choice[name] = {s["day"]: s.get("time_range", "") for s in row["shifts"]}
 
+    dates = dict(week.dates())
     lines = ["דוח נוכחות - מחלקת מחקר ופיתוח:", ""]
 
     for day_key in REPORT_DAYS:
         d = dates[day_key]
         lines.append(f"{DAY_LABEL_FULL[day_key]} - {d.strftime('%d/%m/%y')}:")
 
-        if present[day_key]:
+        present = [n for n in all_names if day_choice[n].get(day_key) == "full"]
+        remote  = [n for n in all_names if day_choice[n].get(day_key) != "full"]
+
+        if present:
             lines.append("נוכחים:")
-            for name in present[day_key]:
+            for name in present:
                 lines.append(f" {name}")
 
-        if remote[day_key]:
+        if remote:
             lines.append("בבית:")
-            for name in remote[day_key]:
+            for name in remote:
                 lines.append(f" {name}")
 
         lines.append(SEPARATOR)
         lines.append("")
 
     return "\n".join(lines).rstrip()
+
+
+def build_missing(week: Week) -> str | None:
+    missing = db.users_without_submission(week.id)
+    if not missing:
+        return None
+    names = []
+    for u in missing:
+        names.append(u.get("display_name") or u.get("first_name") or (f"@{u['username']}" if u.get("username") else f"id:{u['user_id']}"))
+    return "לא שלחו משמרות:\n" + "\n".join(f" {n}" for n in names)

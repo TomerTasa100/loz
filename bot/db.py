@@ -176,7 +176,7 @@ def users_without_submission(week_id: int) -> list[dict]:
     with _conn() as c:
         rows = c.execute(
             """
-            SELECT telegram_user_id AS user_id, username, first_name, dm_chat_id
+            SELECT telegram_user_id AS user_id, username, first_name, display_name, dm_chat_id
             FROM users
             WHERE telegram_user_id NOT IN (
                 SELECT DISTINCT user_id FROM submissions WHERE week_id = ?

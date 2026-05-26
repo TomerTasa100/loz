@@ -71,8 +71,10 @@ async def nudge(context: ContextTypes.DEFAULT_TYPE) -> None:
 async def report(context: ContextTypes.DEFAULT_TYPE) -> None:
     week = upcoming_week()
     db.ensure_week(week)
-    text = reporter.build_report(week)
-    await context.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=text)
+    await context.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=reporter.build_report(week))
+    missing = reporter.build_missing(week)
+    if missing:
+        await context.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=missing)
 
 
 JOBS_BY_NAME = {
