@@ -145,8 +145,8 @@ def latest_submissions_for_week(week_id: int) -> list[dict]:
     with _conn() as c:
         rows = c.execute(
             """
-            SELECT s.user_id, s.raw_text, s.parsed_json, s.created_at,
-                   u.username, u.first_name, u.display_name
+            SELECT s.user_id, s.raw_text, s.parsed_json, s.source, s.created_at,
+                   u.username, u.first_name, u.display_name, u.employee_id
             FROM submissions s
             JOIN users u ON u.telegram_user_id = s.user_id
             WHERE s.week_id = ?
@@ -166,6 +166,9 @@ def latest_submissions_for_week(week_id: int) -> list[dict]:
             "username": r["username"],
             "first_name": r["first_name"],
             "display_name": r["display_name"],
+            "employee_id": r["employee_id"],
+            "source": r["source"],
+            "created_at": r["created_at"],
         }
         for r in rows
     ]

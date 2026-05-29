@@ -5,8 +5,8 @@ from datetime import time
 
 from telegram.ext import Application, ContextTypes
 
-from . import db, reporter
-from .config import TELEGRAM_CHAT_ID
+from . import db, reporter, sheets
+from .config import TELEGRAM_CHAT_ID, REPORT_RECIPIENT_IDS
 from .week import TZ, DAY_LABEL_HE, upcoming_week
 
 logger = logging.getLogger(__name__)
@@ -71,10 +71,21 @@ async def nudge(context: ContextTypes.DEFAULT_TYPE) -> None:
 async def report(context: ContextTypes.DEFAULT_TYPE) -> None:
     week = upcoming_week()
     db.ensure_week(week)
-    await context.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=reporter.build_report(week))
+    text = reporter.build_report(week)
     missing = reporter.build_missing(week)
-    if missing:
-        await context.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=missing)
+    for uid in REPORT_RECIPIENT_IDS:
+        user = db.get_user(uid)
+        dm_chat_id = user["dm_chat_id"] if user else None
+        if not dm_chat_id:
+            logger.warning("Report recipient %s has no DM chat id; skipping", uid)
+            continue
+        await context.bot.send_message(chat_id=dm_chat_id, text=text)
+        if missing:
+            await context.bot.send_message(chat_id=dm_chat_id, text=missing)
+    try:
+        sheets.sync_week(week, db.latest_submissions_for_week(week.id))
+    except Exception:
+        logger.exception("Failed to sync week %s to Google Sheets", week.id)
 
 
 JOBS_BY_NAME = {

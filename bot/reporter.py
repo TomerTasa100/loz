@@ -6,10 +6,15 @@ from .week import DAY_KEYS, DAY_LABEL_HE, Week
 SEPARATOR = "————————————————-"
 REPORT_DAYS = [k for k in DAY_KEYS if k != "sunday"]
 DAY_LABEL_FULL = {k: f"יום {DAY_LABEL_HE[k]}" for k in DAY_KEYS}
+SHIFT_LABEL = {"full": "יום מלא", "half": "חצי יום"}
 
 
 def _display_name(row: dict) -> str:
     return row.get("display_name") or row.get("first_name") or (f"@{row['username']}" if row.get("username") else f"id:{row['user_id']}")
+
+
+def _shift_label(token: str) -> str:
+    return SHIFT_LABEL.get(token, token)
 
 
 def build_report(week: Week) -> str:
@@ -37,12 +42,16 @@ def build_report(week: Week) -> str:
         if present:
             lines.append("נוכחים:")
             for name in present:
-                lines.append(f" {name}")
+                lines.append(f" {name} — {_shift_label('full')}")
 
         if remote:
             lines.append("בבית:")
             for name in remote:
-                lines.append(f" {name}")
+                token = day_choice[name].get(day_key)
+                if token:
+                    lines.append(f" {name} — {_shift_label(token)}")
+                else:
+                    lines.append(f" {name}")
 
         lines.append(SEPARATOR)
         lines.append("")

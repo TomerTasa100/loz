@@ -8,7 +8,7 @@ from telegram.constants import ChatMemberStatus, ChatType, ReactionEmoji
 from telegram.ext import ContextTypes
 
 from . import db, reporter, scheduler
-from .config import ADMIN_IDS, TELEGRAM_CHAT_ID
+from .config import ADMIN_IDS, GOOGLE_SHEETS_SPREADSHEET_ID, TELEGRAM_CHAT_ID
 from .parser import parse_shift
 from .week import DAY_KEYS, DAY_LABEL_HE, Week, upcoming_week
 
@@ -241,6 +241,20 @@ async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     missing = reporter.build_missing(week)
     if missing:
         await update.effective_message.reply_text(missing)
+
+
+async def sheet_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat = update.effective_chat
+    if chat is None or chat.id != TELEGRAM_CHAT_ID:
+        return
+    if not GOOGLE_SHEETS_SPREADSHEET_ID:
+        await update.effective_message.reply_text(
+            "הגיליון עדיין לא הוגדר. צרו Google Sheet ושימו את ה-ID ב-.env בשם "
+            "GOOGLE_SHEETS_SPREADSHEET_ID."
+        )
+        return
+    url = f"https://docs.google.com/spreadsheets/d/{GOOGLE_SHEETS_SPREADSHEET_ID}/edit"
+    await update.effective_message.reply_text(f"היסטוריית המשמרות:\n{url}")
 
 
 async def remind_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
