@@ -4,7 +4,7 @@ from . import db
 from .week import DAY_KEYS, DAY_LABEL_HE, Week
 
 SEPARATOR = "————————————————-"
-REPORT_DAYS = [k for k in DAY_KEYS if k != "sunday"]
+REPORT_DAYS = DAY_KEYS  # Sun..Sat; Saturday is rendered as "everyone at home".
 DAY_LABEL_FULL = {k: f"יום {DAY_LABEL_HE[k]}" for k in DAY_KEYS}
 SHIFT_LABEL = {"full": "יום מלא", "half": "חצי יום"}
 
@@ -17,7 +17,7 @@ def _shift_label(token: str) -> str:
     return SHIFT_LABEL.get(token, token)
 
 
-def build_report(week: Week) -> str:
+def build_report(week: Week, *, show_shifts: bool = True) -> str:
     subs = db.latest_submissions_for_week(week.id)
 
     # Per submitter: set of days they selected and their shift type per day.
@@ -36,19 +36,26 @@ def build_report(week: Week) -> str:
         d = dates[day_key]
         lines.append(f"{DAY_LABEL_FULL[day_key]} - {d.strftime('%d/%m/%y')}:")
 
-        present = [n for n in all_names if day_choice[n].get(day_key) == "full"]
-        remote  = [n for n in all_names if day_choice[n].get(day_key) != "full"]
+        if day_key == "saturday":
+            present: list[str] = []
+            remote = list(all_names)
+        else:
+            present = [n for n in all_names if day_choice[n].get(day_key) == "full"]
+            remote  = [n for n in all_names if day_choice[n].get(day_key) != "full"]
 
         if present:
             lines.append("נוכחים:")
             for name in present:
-                lines.append(f" {name} — {_shift_label('full')}")
+                if show_shifts:
+                    lines.append(f" {name} — {_shift_label('full')}")
+                else:
+                    lines.append(f" {name}")
 
         if remote:
             lines.append("בבית:")
             for name in remote:
-                token = day_choice[name].get(day_key)
-                if token:
+                token = None if day_key == "saturday" else day_choice[name].get(day_key)
+                if token and show_shifts:
                     lines.append(f" {name} — {_shift_label(token)}")
                 else:
                     lines.append(f" {name}")

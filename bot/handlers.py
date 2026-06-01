@@ -23,6 +23,15 @@ DAY_LABEL = {FULL_DAY_TOKEN: "יום מלא", HALF_DAY_TOKEN: "חצי יום"}
 
 _MEMBER_STATUSES = {ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER, ChatMemberStatus.RESTRICTED}
 
+COMMANDS_BLOCK = (
+    "פקודות זמינות:\n"
+    "  /start — הרשמה ובחירת ימי משמרת\n"
+    "  /help — הצגת הפקודות הזמינות\n"
+    "  /report — דוח השבוע הקרוב (בקבוצה)\n"
+    "  /sheet — קישור לגיליון Google\n"
+    "  /remind kickoff|lastcall|nudge|report — הפעלה ידנית (אדמינים)"
+)
+
 
 async def _is_group_member(bot, user_id: int) -> bool:
     try:
@@ -78,7 +87,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not record or not record.get("display_name"):
         context.user_data["onboarding_step"] = "awaiting_name"
         await update.effective_message.reply_text(
-            "שלום 👋\nכדי להירשם, מה השם המלא שלך?"
+            f"שלום 👋\n{COMMANDS_BLOCK}\n\nכדי להירשם, מה השם המלא שלך?"
         )
         return
 
@@ -93,6 +102,7 @@ async def _send_day_picker(send, context: ContextTypes.DEFAULT_TYPE, *, greet_na
     context.user_data["time_chosen"] = {}
     await send(
         f"היי {greet_name} 👋\n"
+        f"{COMMANDS_BLOCK}\n\n"
         f"בחר/י את הימים שבהם תרצה/י לעבוד בשבוע {week.label()}:\n"
         "(לחיצה על יום מסמנת/מבטלת. בסיום לחצ/י \"סיום\".)",
         reply_markup=_days_keyboard(week, set()),
@@ -224,9 +234,7 @@ async def _prompt_mode(query, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text(
-        "פקודות זמינות:\n"
-        "  /start — הרשמה לתזכורות אישיות\n"
-        "  /help  — העזרה הזו\n\n"
+        f"{COMMANDS_BLOCK}\n\n"
         "פשוט כתוב/י הודעה רגילה עם ימים ושעות ואני אזהה אותה אוטומטית.\n"
         "ההודעה האחרונה שלך לכל שבוע היא הקובעת."
     )
@@ -234,10 +242,21 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat = update.effective_chat
-    if chat is None or chat.id != TELEGRAM_CHAT_ID:
+    user = update.effective_user
+    if chat is None or user is None:
         return
+    if chat.type == ChatType.PRIVATE:
+        if not await _is_group_member(context.bot, user.id):
+            return
+        in_group = False
+    else:
+        if chat.id != TELEGRAM_CHAT_ID:
+            return
+        in_group = True
     week = upcoming_week()
-    await update.effective_message.reply_text(reporter.build_report(week))
+    await update.effective_message.reply_text(
+        reporter.build_report(week, show_shifts=not in_group)
+    )
     missing = reporter.build_missing(week)
     if missing:
         await update.effective_message.reply_text(missing)
